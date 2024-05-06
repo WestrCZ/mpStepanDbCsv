@@ -9,11 +9,10 @@ public class Program
     {
         Console.ForegroundColor = ConsoleColor.DarkRed;
 
-        DateTime dateTime = GetProperDate();
+        DateTime dateTime = GetProperDate(args);
         var fileName = $"{dateTime.ToString("yyyyMMdd")}-adventureworks.csv";
 #pragma warning disable SYSLIB0014 // Type or member is obsolete
         var client = new WebClient();
-#pragma warning restore SYSLIB0014 // Type or member is obsolete
         var currencyData = client.DownloadString("https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/rok.txt?rok=2024").Split("\n");
         string[] currencySplittedLine;
         var currencyValue = 0.0;
@@ -27,58 +26,77 @@ public class Program
                 break;
             }
         }
-        PrintDelimiter();
-        Console.WriteLine($"USD = {currencyValue} Kč\n");
-        PrintDelimiter();
-        try
+        if (currencyValue == 0.0)
         {
-            SqlConnectionStringBuilder builder = new SqlConnectionStringBuilder();
-            builder.DataSource = "stbechyn-sql.database.windows.net";
-            builder.UserID = "prvniit";
-            builder.Password = "P@ssW0rd!";
-            builder.InitialCatalog = "AdventureWorksDW2020";
-            Console.ForegroundColor= ConsoleColor.Cyan;
-            using (SqlConnection connection = new SqlConnection(builder.ConnectionString))
+            Console.WriteLine("If you used the date of today, CNB probably didn't provide the data yet. Try using the date of yesterday.\n");
+            Console.WriteLine("Exitting application...");
+        }
+        else
+        {
+            PrintDelimiter();
+            Console.WriteLine($"USD = {currencyValue} Kč\n");
+            PrintDelimiter();
+            try
             {
-                Console.WriteLine("\nQuery data:");
-                PrintDelimiter();
-                var query = "SELECT EnglishProductName, DealerPrice as [Price USD] FROM DimProduct WHERE DealerPrice IS NOT NULL";
-                using (SqlCommand command = new(query, connection))
+                SqlConnectionStringBuilder builder = new SqlConnectionStringBuilder();
+                builder.DataSource = "stbechyn-sql.database.windows.net";
+                builder.UserID = "prvniit";
+                builder.Password = "P@ssW0rd!";
+                builder.InitialCatalog = "AdventureWorksDW2020";
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                using (SqlConnection connection = new SqlConnection(builder.ConnectionString))
                 {
-                    connection.Open();
-                    using (SqlDataReader reader = command.ExecuteReader())
+                    Console.WriteLine("\nQuery data:");
+                    PrintDelimiter();
+                    var query = "SELECT EnglishProductName, DealerPrice as [Price USD] FROM DimProduct WHERE DealerPrice IS NOT NULL";
+                    using (SqlCommand command = new(query, connection))
                     {
-                        //Anonymous object init
-                        var data = new List<(string, string, string, string, string)>();
-                        Console.WriteLine("Date;EnglishProductName;Price USD;Price CZK;Rate");
-                        data.Add(("Date", "EnglishProductName", "Price USD", "Price CZK", "Rate"));
-                        while (reader.Read())
+                        connection.Open();
+                        using (SqlDataReader reader = command.ExecuteReader())
                         {
-                            //used keys [] as filter
-                            string productName = reader["EnglishProductName"].ToString()!;
-                            string priceUSD = reader["Price USD"].ToString()!;
-                            var priceCZK = (SafelyConvertToDouble(priceUSD) * currencyValue).ToString().Replace(',', '.');
-                            Console.WriteLine("{4};{0};{1};{2};{3}", productName, priceUSD = priceUSD.Replace(',', '.'), priceCZK, currencyValue.ToString().Replace(',', '.'), dateTime.ToString("yyyy-MM-dd'T'HH:mm:ss"));
-                            data.Add((dateTime.ToString("yyyy-MM-dd'T'HH:mm:ss"), productName, priceUSD, priceCZK, $"{currencyValue.ToString().Replace(',', '.')}"));
+                            //Anonymous object init
+                            var data = new List<(string, string, string, string, string)>();
+                            Console.WriteLine("Date;EnglishProductName;Price USD;Price CZK;Rate");
+                            data.Add(("Date", "EnglishProductName", "Price USD", "Price CZK", "Rate"));
+                            while (reader.Read())
+                            {
+                                //used keys [] as filter
+                                string productName = reader["EnglishProductName"].ToString()!;
+                                string priceUSD = reader["Price USD"].ToString()!;
+                                var priceCZK = (SafelyConvertToDouble(priceUSD) * currencyValue).ToString().Replace(',', '.');
+                                Console.WriteLine("{4};{0};{1};{2};{3}", productName, priceUSD = priceUSD.Replace(',', '.'), priceCZK, currencyValue.ToString().Replace(',', '.'), dateTime.ToString("yyyy-MM-dd'T'HH:mm:ss"));
+                                data.Add((dateTime.ToString("yyyy-MM-dd'T'HH:mm:ss"), productName, priceUSD, priceCZK, $"{currencyValue.ToString().Replace(',', '.')}"));
+                            }
+                            connection.Close();
+                            ExportToCsv(data, fileName);
                         }
-                        connection.Close();
-                        ExportToCsv(data, fileName);
                     }
                 }
+                Console.ForegroundColor = ConsoleColor.DarkRed;
             }
-            Console.ForegroundColor = ConsoleColor.DarkRed;
+            catch (SqlException e) { Console.WriteLine(e.ToString()); }
         }
-        catch (SqlException e) { Console.WriteLine(e.ToString()); }
     }
 
-    private static DateTime GetProperDate()
+    private static DateTime GetProperDate(string[] args)
     {
-        Console.WriteLine("Please enter a datetime:");
-        var userInput = Console.ReadLine();
         DateTime dateTime;
-        if (DateTime.TryParse(userInput, out dateTime))
+        if (args.Length == 0)
         {
-            Console.WriteLine("Parsed datetime: " + dateTime.ToString("dd.MM.yyyy"));
+            dateTime = DateTime.Now;
+        }
+        else if (DateTime.TryParse(args[0], out dateTime))
+        {
+            if (dateTime > DateTime.Now)
+            {
+                Console.WriteLine("The USD rate was not yet given for this date.");
+                dateTime = DateTime.Now;
+                Console.WriteLine("Using todays date.");
+            }
+            else
+            {
+                Console.WriteLine("Parsed datetime: " + dateTime.ToString("dd.MM.yyyy"));
+            }
         }
         else
         {
@@ -86,6 +104,7 @@ public class Program
             dateTime = DateTime.Now;
             Console.WriteLine("Parsed datetime: " + dateTime.ToString("dd.MM.yyyy"));
         }
+
         if (dateTime.DayOfWeek == DayOfWeek.Sunday)
         {
             dateTime = dateTime.AddDays(-2);
