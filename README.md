@@ -1,4 +1,4 @@
-#CurrencyRateConvertor
+# CurrencyRateConvertor
   Aplikace převádí ceny položek z ukázkového databázového serveru z USD na CZK. Výstupem je textový soubor v adresáři aplikace. Ceny jsou převáděny podle oficiálního aktualizovaného kurzu od ČNB.
 
 ## USD=>CZK;csv
